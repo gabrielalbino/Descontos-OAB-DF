@@ -1,0 +1,12 @@
+img {
+  display: block;
+  margin: 16px auto;
+}
+
+.box.warning {
+  margin: 16px auto;
+  padding: 16px;
+  border: 1px solid #f00;
+  background-color: #fdd;
+  color: #f00;
+}

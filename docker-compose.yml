@@ -1,0 +1,41 @@
+version: "3.9"
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./backend:/app  # Sincroniza o código local com o contêiner
+    environment:
+      - FLASK_ENV=development  # Ativa o modo de desenvolvimento
+      - DATABASE_URL=postgresql://postgres:password@db:5432/convenios
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    ports:
+      - "3000:3000"  # Porta do frontend
+    volumes:
+      - ./frontend:/app  # Sincroniza o código local com o contêiner
+    environment:
+      - NODE_ENV=development  # Ativa o modo de desenvolvimento no Next.js
+    command: yarn dev  # Comando para rodar o frontend no modo dev
+
+  db:
+    image: postgres:15
+    container_name: db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: convenios
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+volumes:
+  db_data:

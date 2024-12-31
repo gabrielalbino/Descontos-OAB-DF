@@ -1,0 +1,9 @@
+Flask==2.2.5
+Flask-CORS==3.0.10
+scrapy==2.9.0
+scrapydo==0.2.2
+SQLAlchemy==2.0.16
+psycopg2-binary==2.9.6
+twisted==22.10.0
+crochet==2.1.1
+flask-socketio==5.5.0
