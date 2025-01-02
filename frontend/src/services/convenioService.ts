@@ -27,8 +27,7 @@ export async function fetchConvenioById(id: string) {
 }
 
 export async function fetchConveniosByCategory(cat: string) {
-  const response = await axios.get(`${API_URL}/convenios_by_cat/${cat}`);
-  return response.data;
+  return await fetchConvenios("", 1, 1000, "title", "asc", cat);
 }
 
 export const fetchCategories = async () => {

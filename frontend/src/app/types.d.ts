@@ -3,6 +3,11 @@ interface Convenio {
   title: string;
   cats: string;
   date: string;
+  url: string;
+  image: string;
+  title_highlight: string;
+  content_highlight: string;
+  discounts_highlight: string;
   discounts: string;
 }
 

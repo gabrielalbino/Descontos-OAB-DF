@@ -8,34 +8,32 @@ services:
     ports:
       - "5001:5001"
     volumes:
-      - ./backend:/app  # Sincroniza o código local com o contêiner
+      - ./backend:/app
     environment:
-      - FLASK_ENV=development  # Ativa o modo de desenvolvimento
-      - DATABASE_URL=postgresql://postgres:password@db:5432/convenios
+      - FLASK_ENV=development
+      - MEILISEARCH_URL=http://meilisearch:7700
+      - MEILISEARCH_API_KEY=masterKey
+    depends_on:
+      - meilisearch
+
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: frontend
     ports:
-      - "3000:3000"  # Porta do frontend
+      - "3000:3000"
     volumes:
-      - ./frontend:/app  # Sincroniza o código local com o contêiner
+      - ./frontend:/app
     environment:
-      - NODE_ENV=development  # Ativa o modo de desenvolvimento no Next.js
-    command: yarn dev  # Comando para rodar o frontend no modo dev
+      - NODE_ENV=development
+    command: yarn dev
 
-  db:
-    image: postgres:15
-    container_name: db
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: convenios
+  meilisearch:
+    image: getmeili/meilisearch:latest
+    container_name: meilisearch
     ports:
-      - "5432:5432"
-    volumes:
-      - db_data:/var/lib/postgresql/data
-
-volumes:
-  db_data:
+      - "7700:7700"
+    environment:
+      MEILI_HTTP_ADDR: "0.0.0.0:7700"
+      MEILI_MASTER_KEY: "masterKey"

@@ -5,8 +5,8 @@ import json
 import logging
 import subprocess
 import threading
-from server.database import search_convenios, count_convenios, insert_convenio, get_all_convenios, clear_convenios, get_unique_cats,find_convenio_by_id, get_convenios_by_cat
 import uuid
+from meilisearch import Client
 
 
 routes_bp = Blueprint("routes", __name__)
@@ -14,6 +14,12 @@ routes_bp = Blueprint("routes", __name__)
 spider_lock = Lock()
 spider_running = False
 socketio = None  # Inicialização será feita em app.py
+
+# Configura o cliente Meilisearch
+MEILISEARCH_URL = os.getenv("MEILISEARCH_URL", "http://localhost:7700")
+MEILISEARCH_API_KEY = os.getenv("MEILISEARCH_API_KEY", "masterKey")
+client = Client(MEILISEARCH_URL, MEILISEARCH_API_KEY)
+INDEX_NAME = "convenios"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,6 +42,59 @@ def scrape_data():
         spider_running = True
 
     def run_scrapy():
+        def process_convenios():
+            def configure_meilisearch_index():
+                """Configura o índice Meilisearch."""
+                try:
+                    # Configurar o índice
+                    index = client.index(INDEX_NAME)
+                    
+                    # Definir atributos de ordenação
+                    index.update_sortable_attributes(["date", "title", "cats"])
+                    
+                    # Definir atributos de filtragem
+                    index.update_filterable_attributes(["cats"])
+                    
+                    print(f"Atributos de ordenação configurados com sucesso para o índice '{INDEX_NAME}'.")
+
+                except Exception as e:
+                    print(f"Erro ao configurar o índice Meilisearch: {e}")
+            """Processa os convênios do arquivo JSON e indexa no Meilisearch."""
+            try:
+                # Caminho para o arquivo JSON
+                json_path = os.path.join(os.getcwd(), "myspider_project", "output", "convenios.json")
+            
+                if not os.path.exists(json_path):
+                    logging.error("[Flask] Arquivo JSON não encontrado")
+                    return {"ok": False, "message": "Arquivo JSON não encontrado"}
+
+                # Lê os convênios do arquivo JSON
+                with open(json_path, "r", encoding="utf-8") as f:
+                    convenios = json.load(f)
+
+                # Garante que o índice existe
+                try:
+                    client.create_index(INDEX_NAME, {"primaryKey": "id"})
+                except Exception:
+                    logging.info(f"[Flask] Índice '{INDEX_NAME}' já existe")
+                    
+                client.index(INDEX_NAME).delete_all_documents()
+                
+                # Adiciona um UUID único para cada convênio e indexa no Meilisearch
+                for convenio in convenios:
+                    convenio["id"] = str(uuid.uuid4())
+
+                client.index(INDEX_NAME).add_documents(convenios)
+                configure_meilisearch_index()
+                
+                logging.info("[Flask] Documentos processados e indexados com sucesso no Meilisearch.")
+
+                os.remove(json_path)  # Opcional: Remove o arquivo após o processamento
+                return {"ok": True, "message": "Dados processados e indexados com sucesso"}
+            except Exception as e:
+                logging.error(f"[Flask] Erro ao processar convênios: {str(e)}")
+                return {"ok": False, "message": f"Erro: {str(e)}"}
+            
         try:
             json_path = os.path.join(os.getcwd(), "myspider_project", "output", "convenios.json")
             if os.path.exists(json_path):
@@ -81,6 +140,9 @@ def scrape_data():
     return jsonify({"ok": True, "message": "Scraping iniciado"}), 200
 @routes_bp.route("/convenios", methods=["GET"])
 def get_convenios():
+    index = client.index(INDEX_NAME)
+
+    # Parâmetros da requisição
     search_text = request.args.get("search", "").strip()
     page = int(request.args.get("page", 1))
     page_size = int(request.args.get("page_size", 10))
@@ -88,102 +150,99 @@ def get_convenios():
     order = request.args.get("order", "asc").strip()  # Ordem padrão: ascendente
     category = request.args.get("category", "").strip()
 
-    convenios = search_convenios(
-        search_text=search_text if search_text else None,
-        page=page,
-        page_size=page_size,
-        sort_by=sort_by,
-        order=order,
-        cat=category if category else None
-    )
+    # Configuração do filtro e ordenação
+    filters = []
+    if category:
+        filters.append(f"cats = '{category}'")
 
-    total_items = count_convenios(search_text=search_text if search_text else None, cat=category if category else None)
-    total_pages = (total_items // page_size) + (1 if total_items % page_size else 0)
+    sort = [f"{sort_by}:{order}"] if sort_by else None
 
-    # Sugestões para autocompletar
-    if search_text:
-        suggestions = [
-            {"id": row["id"], "title": row["title"]}
-            for row in search_convenios(search_text=search_text, page=1, page_size=5)
-        ]
-    else:
-        suggestions = []
-
-    return jsonify({
-        "data": [dict(row) for row in convenios],
-        "suggestions": suggestions,
-        "page": page,
-        "page_size": page_size,
-        "total_items": total_items,
-        "total_pages": total_pages,
-    })
-
-
-@routes_bp.route("/allconvenios", methods=["GET"])
-def get_all_convenios_route():
-    convenios = get_all_convenios()
-    return jsonify(convenios)
-
-def process_convenios():
-    """Processa os convênios do arquivo JSON e insere no banco de dados"""
-    # gera um map de nomes para atribuir um uuid unico para cada convenio
-    convenio_map = {}
-    
+    # Busca principal
     try:
-        json_path = os.path.join(os.getcwd(), "myspider_project", "output", "convenios.json")
+        search_result = index.search(
+            search_text,
+            {
+                "limit": page_size,
+                "offset": (page - 1) * page_size,
+                "filter": " AND ".join(filters) if filters else None,
+                "sort": sort,
+                "attributesToHighlight": ["title", "content", "discounts"],  # Adicione os campos que deseja destacar
+                "highlightPreTag": "<em>",  # Tag usada para abrir o destaque
+                "highlightPostTag": "</em>",  # Tag usada para fechar o destaque
+            },
+        )
 
-        if not os.path.exists(json_path):
-            logging.error("[Flask] Arquivo JSON não encontrado")
-            return {"ok": False, "message": "Arquivo JSON não encontrado"}
+        total_items = search_result.get("estimatedTotalHits", 0)
+        total_pages = (total_items // page_size) + (1 if total_items % page_size else 0)
 
-        with open(json_path, "r", encoding="utf-8") as f:
-            convenios = json.load(f)
-        clear_convenios()  # Limpa a tabela de convênios
-        for convenio in convenios:
-            uuid_convenio = str(uuid.uuid4())
-            # Verifica se o convenio já foi inserido
-            if convenio["title"] in convenio_map:
-                # pega o uuid do convenio
-                uuid_convenio = convenio_map[convenio["title"]]
-            else:
-                # adiciona o convenio ao map
-                convenio_map[convenio["title"]] = uuid_convenio
-            
-            insert_convenio(
-                title=convenio.get("title", "Sem título"),
-                date=convenio.get("date", ""),
-                cats=convenio.get("cats", ""),
-                content=convenio.get("content", ""),
-                discounts=convenio.get("discounts", ""),
-                id=uuid_convenio
+        # Sugestões para autocompletar
+        suggestions = []
+        if search_text:
+            suggestion_result = index.search(
+                search_text,
+                {
+                    "limit": 5,
+                    "attributesToRetrieve": ["id", "title"],
+                },
             )
+            suggestions = [
+                {"id": item["id"], "title": item["title"]}
+                for item in suggestion_result.get("hits", [])
+            ]
 
-        logging.info("[Flask] Dados processados e inseridos no banco de dados com sucesso.")
-        os.remove(json_path)  # Opcional: Remover o arquivo após o processamento
+        # Retorno final com os highlights
+        return jsonify({
+            "data": [
+                {
+                    **item,
+                    "title_highlight": item["_formatted"].get("title", item.get("title")),
+                    "content_highlight": item["_formatted"].get("content", item.get("content")),
+                    "discounts_highlight": item["_formatted"].get("discounts", item.get("discounts")),
+                }
+                for item in search_result.get("hits", [])
+            ],
+            "suggestions": suggestions,
+            "page": page,
+            "page_size": page_size,
+            "total_items": total_items,
+            "total_pages": total_pages,
+        })
 
-        return {"ok": True, "message": "Dados processados com sucesso"}
     except Exception as e:
-        logging.error(f"[Flask] Erro ao processar convênios: {str(e)}")
-        return {"ok": False, "message": f"Erro: {str(e)}"}
+        logging.error(f"[Flask] Erro ao buscar convênios: {str(e)}")
+        return jsonify({"ok": False, "data": [], "message": f"Erro ao buscar convênios: {str(e)}"}), 500
     
 @routes_bp.route("/get_categories", methods=["GET"])
 def get_categories():
     try:
-        cats = get_unique_cats()
-        return jsonify(cats)
+        index = client.index(INDEX_NAME)
+        # Recupera todas as categorias existentes
+        search_result = index.search("", {"attributesToRetrieve": ["cats"], "limit": 1000})
+        categories = set()
+        for hit in search_result.get("hits", []):
+            if "cats" in hit and hit["cats"]:
+                categories.update([cat.strip() for cat in hit["cats"].split(",")])
+
+        return jsonify(sorted(categories))
+
     except Exception as e:
         logging.error(f"[Flask] Erro ao buscar categorias: {str(e)}")
         return jsonify([])
     
+
 @routes_bp.route("/convenio/<id>", methods=["GET"])
 def get_convenio_by_id(id):
-    convenio = find_convenio_by_id(id)
-    if not convenio:
-        return jsonify({"ok": False, "message": "Convênio não encontrado"}), 404
-    return jsonify(convenio)
+    try:
+        index = client.index(INDEX_NAME)
 
-@routes_bp.route("/convenios_by_cat/<cat>", methods=["GET"])
-def get_convenios_by_cat_route(cat):
-    logging.info(f"[Flask] Buscando convênios da categoria {cat}")
-    convenios = get_convenios_by_cat(cat)
-    return jsonify(convenios)
+        # Busca o documento pelo ID
+        convenio = index.get_document(id)
+        
+        # Converte o objeto para um dicionário se necessário
+        convenio_dict = dict(convenio) if not isinstance(convenio, dict) else convenio
+        
+        return jsonify(convenio_dict)
+
+    except Exception as e:
+        logging.error(f"[Flask] Erro ao buscar convênio por ID '{id}': {str(e)}")
+        return jsonify({"ok": False, "message": "Convênio não encontrado"}), 404

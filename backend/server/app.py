@@ -3,6 +3,7 @@ from flask_cors import CORS
 from server.routes import routes_bp
 from flask_socketio import SocketIO
 from server.database import create_tables
+import logging
 
 app = Flask(__name__)
 
@@ -20,5 +21,6 @@ init_socketio(socketio)
 app.register_blueprint(routes_bp)
 
 if __name__ == "__main__":
+    logging.info("Criando as tabelas no banco de dados...")
     create_tables()
     socketio.run(app, host="0.0.0.0", port=5001, allow_unsafe_werkzeug=True)

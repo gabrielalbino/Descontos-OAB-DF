@@ -8,7 +8,7 @@ class ConvenioSpider(scrapy.Spider):
     start_urls = ["https://www.caadf.org.br/category/convenios/"]
 
     custom_settings = {
-        'LOG_LEVEL': 'INFO',  # Apenas logs INFO ou superiores
+        'LOG_LEVEL': 'WARNING',  # Apenas logs WARN ou superiores
         'FEEDS': {
             'output/convenios.json': {
                 'format': 'json',
@@ -25,23 +25,24 @@ class ConvenioSpider(scrapy.Spider):
         return message
 
     def parse(self, response):
-        logging.info(self.truncate_message(f"Acessando: {response.url}"))
+        logging.warning(self.truncate_message(f"Acessando: {response.url}"))
         links = response.css('.content .post-listing .more-link::attr(href)').getall()
         pages = response.css('.pagination a::attr(href)').getall()
 
         for link in links:
             yield response.follow(link, callback=self.parse_convenio)
 
-        for page in pages:
-            yield response.follow(page, callback=self.parse)
+        # for page in pages:
+            # yield response.follow(page, callback=self.parse)
 
     def parse_convenio(self, response):
-        logging.info(self.truncate_message(f"Extraindo convênio: {response.url}"))
+        logging.warning(self.truncate_message(f"Extraindo convênio: {response.url}"))
 
         title = response.css('h1 span::text').get()
         date = response.css('.tie-date::text').get()
         cats = response.css('.post-cats a::text').getall()
         content = response.css('.entry').get()
+        image = response.css('.entry a img::attr(src)').get()
 
         # Regex para capturar descontos
         discounts_regex = (
@@ -58,9 +59,6 @@ class ConvenioSpider(scrapy.Spider):
                 if discount_text:
                     clean_discounts.append(re.sub(r'<[^>]*>', '', discount_text).strip())
 
-
-        logging.info(f"Descontos: {clean_discounts}")
-
            # Remover HTML desnecessário e caracteres redundantes
         sanitized_content = re.sub(r'<(script|style|iframe|noscript)[^>]*>.*?</\1>', '', content, flags=re.DOTALL)
         sanitized_content = re.sub(r'<!--.*?-->', '', sanitized_content, flags=re.DOTALL)
@@ -68,6 +66,8 @@ class ConvenioSpider(scrapy.Spider):
         sanitized_content = re.sub(r'\n+', ' ', sanitized_content)
         sanitized_content = re.sub(r'\s{2,}', ' ', sanitized_content).strip()
         sanitized_content = re.sub(r'<div class="clear">.*', '</div>', content, flags=re.DOTALL)
+        
+        content_text = re.sub(r'<[^>]*>', '', sanitized_content)
 
         #parse from brazilian date format to sortable date
         sortable_date = None
@@ -76,7 +76,6 @@ class ConvenioSpider(scrapy.Spider):
             if len(date_parts) == 3:
                 sortable_date = f"{date_parts[2]}-{date_parts[1]}-{date_parts[0]}"
                 
-        
         #remove all inline styles from content, to avoid conflicts with frontend styles
         regex = r'style="[^"]*"'
         content = re.sub(regex, '', content)
@@ -87,10 +86,12 @@ class ConvenioSpider(scrapy.Spider):
             "cats": ", ".join(c.strip() for c in cats if c.strip() not in ["Convênios", "Destaques"]) if cats else "",
             "content": (sanitized_content or "").strip(),
             "discounts": ", ".join(clean_discounts) if clean_discounts else "",
-            
+            "text": (content_text or "").strip(),
+            "url": response.url,
+            "image": image,
         }
 
         yield item
 
     def closed(self, reason):
-        logging.info(self.truncate_message(f"Spider finalizado. Motivo: {reason}"))
+        logging.warning(self.truncate_message(f"Spider finalizado. Motivo: {reason}"))

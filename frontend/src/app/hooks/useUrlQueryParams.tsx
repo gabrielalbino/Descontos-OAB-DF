@@ -11,17 +11,7 @@ export function useUrlQueryParams(options: UseUrlQueryParamsOptions = {}) {
   const { defaultParams = {} } = options;
   const router = useRouter();
 
-  const [params, setParams] = useState(() => {
-    const currentUrl = new URL(window.location.href);
-    const searchParams = new URLSearchParams(currentUrl.search);
-    const initialParams: Record<string, any> = {};
-
-    Object.keys(defaultParams).forEach((key) => {
-      initialParams[key] = searchParams.get(key) || defaultParams[key];
-    });
-
-    return initialParams;
-  });
+  const [params, setParams] = useState(defaultParams);
 
   useEffect(() => {
     const currentUrl = new URL(window.location.href);

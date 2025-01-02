@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
 import { io, Socket } from "socket.io-client";
 
@@ -19,7 +20,7 @@ const ScrapyProgress = ({ isRunning, setIsRunning }: ScrapyProgressProps) => {
   const [logs, setLogs] = useState<Log[]>([]); // Lista de logs
   const scrollRef = useRef<HTMLDivElement>(null); // Referência para a caixa de rolagem
   const [isScrolled, setIsScrolled] = useState(false); // Controle de rolagem
-
+  const router = useRouter();
   const MAX_VISIBLE_LOGS = 5; // Limite de mensagens visíveis
 
   useEffect(() => {
@@ -39,6 +40,7 @@ const ScrapyProgress = ({ isRunning, setIsRunning }: ScrapyProgressProps) => {
     socket.on("scrapy_done", (data: { message: string }) => {
       setLogs((prevLogs) => [{ type: "done", message: data.message }]);
       setIsRunning(false);
+      router.refresh(); // Recarrega a página para exibir os novos dados
     });
 
     socket.on("scrapy_error", (data: { message: string }) => {
